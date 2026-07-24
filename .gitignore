@@ -1,0 +1,32 @@
+node_modules/
+emails.json
+/tmp/
+src/library.json.bak*
+.DS_Store
+.claude/
+
+# Environment files — never commit real values, only .env.example
+.env
+.env.*
+!.env.example
+
+# Credentials / keys / certificates
+*.pem
+*.key
+*.crt
+*.cert
+*.p12
+*.pfx
+*credentials*.json
+*serviceAccount*.json
+.aws/
+secrets/
+
+# Local database files / dumps
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+pgdata/
+postgres-data/
+db-data/

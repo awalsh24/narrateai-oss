@@ -1,0 +1,117 @@
+# Brings up NarrateAI end-to-end: Postgres (the app's database), a local
+# PostgREST instance in front of it (so SUPABASE_URL/SUPABASE_SERVICE_KEY
+# work without a real Supabase project), Redis (BullMQ job queue), the API
+# server, and the worker that actually renders videos.
+#
+# Quick start:
+#   cp .env.example .env            # fill in OPENAI_API_KEY, R2_*, etc.
+#   docker compose up --build
+#   open http://localhost:3000
+#
+# The db/postgrest pair is a local dev convenience, not a Supabase
+# replacement — swap SUPABASE_URL/SUPABASE_SERVICE_KEY in .env for a real
+# Supabase project any time and drop those two services.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-narrateai}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      # Numbered so they run in this exact order regardless of source
+      # filename — the postgres image executes /docker-entrypoint-initdb.d
+      # alphabetically on first boot only (skipped once db-data exists).
+      - ./docker/postgres-init/00-roles.sql:/docker-entrypoint-initdb.d/00-roles.sql:ro
+      - ./docker/postgres-init/01-auth-stub.sql:/docker-entrypoint-initdb.d/01-auth-stub.sql:ro
+      - ./supabase/migrations.sql:/docker-entrypoint-initdb.d/02-migrations.sql:ro
+      - ./supabase/migrations/add_video_url.sql:/docker-entrypoint-initdb.d/03-add_video_url.sql:ro
+      - ./supabase/migrations/local_single_user.sql:/docker-entrypoint-initdb.d/04-local_single_user.sql:ro
+      - ./supabase/migrations/remove_billing.sql:/docker-entrypoint-initdb.d/05-remove_billing.sql:ro
+      - ./docker/postgres-init/99-grants.sql:/docker-entrypoint-initdb.d/99-grants.sql:ro
+    ports:
+      - '5432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  postgrest:
+    image: postgrest/postgrest:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # No PGRST_JWT_SECRET is set on purpose: with it unset, PostgREST
+      # skips JWT verification entirely and runs every request as
+      # PGRST_DB_ANON_ROLE. That's fine here since this app only ever
+      # sends a fixed SUPABASE_SERVICE_KEY placeholder — never a real
+      # user-scoped token — so there's no per-request role to verify.
+      PGRST_DB_URI: postgres://service_role:service_role_password@db:5432/${POSTGRES_DB:-narrateai}
+      PGRST_DB_SCHEMA: public
+      PGRST_DB_ANON_ROLE: service_role
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgrest:
+        condition: service_started
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Overrides for the compose network — everything else (OPENAI_API_KEY,
+      # R2_*, LOCAL_USER_*, etc.) comes from .env via env_file above.
+      PORT: 3000
+      REDIS_URL: redis://redis:6379
+      SUPABASE_URL: http://postgrest:3000
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY:-local-dev-placeholder-key}
+    ports:
+      - '3000:3000'
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgrest:
+        condition: service_started
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      REDIS_URL: redis://redis:6379
+      SUPABASE_URL: http://postgrest:3000
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY:-local-dev-placeholder-key}
+
+volumes:
+  db-data:
+  redis-data:

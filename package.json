@@ -1,0 +1,26 @@
+{
+  "name": "narrateai",
+  "version": "1.0.0",
+  "description": "NarrateAI — Turn ideas into cinematic short videos",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "worker": "node src/queue/worker.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.540.0",
+    "@supabase/supabase-js": "^2.103.3",
+    "axios": "^1.6.8",
+    "bullmq": "^5.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.18.2",
+    "express-rate-limit": "^8.5.2",
+    "ffmpeg-static": "^5.3.0",
+    "fluent-ffmpeg": "^2.1.2",
+    "helmet": "^7.1.0",
+    "openai": "^4.36.0",
+    "pg": "^8.11.5"
+  }
+}
